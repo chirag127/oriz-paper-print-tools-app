@@ -1,22 +1,34 @@
-# Oriz Paper — Print-Ready Generators
+# Oriz Paper — Print tools
 
-Print-ready generators for everyday paper: lined sheets, dot grids, graph
-paper, planners, calendars, labels, and more — exported as crisp,
-press-ready PDFs straight from the browser.
+> Print-ready generators for everyday paper — lined sheets, dot grids, graph paper, planners, calendars, labels, and more, exported as crisp, press-ready PDFs straight from the browser.
 
-**Brand:** Paper (print) — one of the `oriz-*` product family.
+**Live at**: <https://print.oriz.in> · **Status**: scaffold
 
-**Live:** https://print.oriz.in
+## What this is
 
-## Stack
+Paper turns parameters into print-ready PDFs. Pick a sheet style, tune it, and download — all generation happens locally in the browser, so layouts stay private and rendering is instant.
 
-- [Astro 6](https://astro.build/) — content + islands
-- [React 19](https://react.dev/) — interactive generators
-- [Tailwind CSS v4](https://tailwindcss.com/) — styling
-- [pdf-lib](https://pdf-lib.js.org/) — client-side PDF output
+## Per-feature inventory
+
+| Feature                     | Status     |
+| --------------------------- | ---------- |
+| (tools not yet implemented) | 📜 planned |
+
+## App-specific env vars
+
+None beyond the family-wide set at `templates/.env.example`.
+
+## Local dev
+
+```bash
+# from the workspace root (c:/D/oriz)
+pnpm -F oriz-paper-print-tools-app dev
+```
+
+## Knowledge
+
+See [`./knowledge/`](./knowledge/) for app-specific decisions, runbooks, and services. Family rules / decisions / architecture live at the master repo's [`knowledge/`](../../../../knowledge/).
 
 ## License
 
-Source-available. See [`LICENSE`](./LICENSE) — public visibility does not
-imply permission to use, modify, or redistribute. Contact the author for
-licensing inquiries.
+Source-available, all rights reserved. See master [`LICENSE`](../../../../LICENSE) — same terms across the family.
