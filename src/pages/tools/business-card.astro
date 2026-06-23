@@ -1,0 +1,219 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro'
+---
+<BaseLayout title="Business Card Creator — Oriz Print" description="Fill in your details, preview your business card, and download a printable A4 sheet of 10 cards. Runs in your browser.">
+  <article class="tool">
+    <p class="back mono"><a href="/">← all tools</a></p>
+    <h1 class="h1">Business Card Creator</h1>
+    <p class="status mono ready">ready</p>
+    <p class="lede">Fill in your details, preview, and download a printable A4 sheet of 10 cards (standard 85 × 55 mm).</p>
+
+    <div class="layout">
+      <div class="form-col">
+        <div class="field-group">
+          <label>Name<input id="bc-name" type="text" value="Jane Smith" /></label>
+          <label>Title<input id="bc-title" type="text" value="Product Designer" /></label>
+          <label>Company<input id="bc-company" type="text" value="Acme Corp" /></label>
+          <label>Email<input id="bc-email" type="text" value="jane@acme.com" /></label>
+          <label>Phone<input id="bc-phone" type="text" value="+1 555 234 5678" /></label>
+          <label>Website<input id="bc-web" type="text" value="acme.com" /></label>
+          <label>Address<input id="bc-addr" type="text" value="123 Main St, City" /></label>
+        </div>
+        <div class="style-group">
+          <label>Background color <input id="bc-bg" type="color" value="#ffffff" /></label>
+          <label>Text color <input id="bc-ink" type="color" value="#1a1a1a" /></label>
+          <label>Accent color <input id="bc-accent" type="color" value="#1e40af" /></label>
+          <label>Layout
+            <select id="bc-layout">
+              <option value="left">Left aligned</option>
+              <option value="center">Centered</option>
+              <option value="split">Split (name left / contact right)</option>
+            </select>
+          </label>
+        </div>
+      </div>
+      <div class="preview-col">
+        <p class="field-label mono">Preview (1:1 card)</p>
+        <canvas id="card-preview" width="255" height="165"></canvas>
+        <p class="hint">A4 sheet will contain 10 cards (2 cols × 5 rows)</p>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="download-pdf" class="btn btn-primary">Download A4 sheet PDF</button>
+    </div>
+  </article>
+</BaseLayout>
+
+<style>
+  .tool { padding-block: 0 2rem; }
+  .back { font-size: 12px; margin: 0 0 2rem; }
+  .back a { color: var(--muted); text-decoration: none; }
+  .back a:hover { color: var(--ink); }
+  .h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(1.75rem, 4vw, 2.5rem); margin: 0 0 0.5rem; line-height: 1.1; }
+  .status { font-size: 11px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 2rem; }
+  .status.ready { color: var(--accent); }
+  .lede { font-size: 1rem; color: var(--muted); line-height: 1.6; max-width: 56ch; margin: 0 0 1.5rem; }
+  .layout { display: flex; flex-wrap: wrap; gap: 2rem; align-items: flex-start; margin-bottom: 1.5rem; }
+  .form-col { flex: 1; min-width: 220px; display: flex; flex-direction: column; gap: 1.25rem; }
+  .field-group, .style-group { display: flex; flex-direction: column; gap: 0.5rem; }
+  .preview-col { display: flex; flex-direction: column; gap: 0.5rem; }
+  .field-label { font-size: 11px; color: var(--muted); letter-spacing: 0.08em; margin: 0; }
+  label { font-size: 0.875rem; color: var(--muted); display: flex; flex-direction: column; gap: 0.2rem; }
+  input[type="text"], select {
+    padding: 0.4rem 0.6rem;
+    background: var(--paper-2);
+    border: 1px solid var(--rule);
+    color: var(--ink);
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+  }
+  input[type="color"] { height: 2rem; padding: 0.1rem; border: 1px solid var(--rule); background: var(--paper-2); }
+  canvas { border: 1px solid var(--rule); display: block; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+  .hint { font-size: 11px; color: var(--muted); margin: 0.25rem 0 0; }
+  .btn {
+    padding: 0.5rem 1.2rem;
+    border: 1px solid var(--rule);
+    background: var(--paper-2);
+    color: var(--ink);
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    cursor: pointer;
+  }
+  .btn:hover { background: var(--ink); color: var(--paper); }
+  .btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn-primary:hover { opacity: 0.85; background: var(--accent); color: #fff; }
+  .actions { margin-top: 0.5rem; }
+</style>
+
+<script>
+  import { jsPDF } from 'jspdf';
+
+  const fields: Record<string, HTMLInputElement | HTMLSelectElement> = {};
+  ['bc-name','bc-title','bc-company','bc-email','bc-phone','bc-web','bc-addr','bc-bg','bc-ink','bc-accent','bc-layout'].forEach(id => {
+    fields[id] = document.getElementById(id) as HTMLInputElement;
+  });
+
+  const canvas = document.getElementById('card-preview') as HTMLCanvasElement;
+  const ctx = canvas.getContext('2d')!;
+
+  // Card dimensions in mm: 85x55, preview scale 3px/mm
+  const CARD_W_MM = 85;
+  const CARD_H_MM = 55;
+  const SCALE = 3;
+
+  function renderCard(c: CanvasRenderingContext2D, scale: number) {
+    const W = CARD_W_MM * scale;
+    const H = CARD_H_MM * scale;
+    const bg = (fields['bc-bg'] as HTMLInputElement).value;
+    const ink = (fields['bc-ink'] as HTMLInputElement).value;
+    const accent = (fields['bc-accent'] as HTMLInputElement).value;
+    const layout = (fields['bc-layout'] as HTMLSelectElement).value;
+
+    const name = (fields['bc-name'] as HTMLInputElement).value;
+    const title = (fields['bc-title'] as HTMLInputElement).value;
+    const company = (fields['bc-company'] as HTMLInputElement).value;
+    const email = (fields['bc-email'] as HTMLInputElement).value;
+    const phone = (fields['bc-phone'] as HTMLInputElement).value;
+    const web = (fields['bc-web'] as HTMLInputElement).value;
+    const addr = (fields['bc-addr'] as HTMLInputElement).value;
+
+    c.fillStyle = bg;
+    c.fillRect(0, 0, W, H);
+
+    // Accent stripe
+    c.fillStyle = accent;
+    c.fillRect(0, 0, 4 * scale, H);
+
+    const pad = 7 * scale;
+    const lpad = 10 * scale;
+
+    if (layout === 'left' || layout === 'center') {
+      const align: CanvasTextAlign = layout === 'center' ? 'center' : 'left';
+      const cx = layout === 'center' ? W / 2 : lpad;
+
+      c.textAlign = align;
+      c.fillStyle = ink;
+      c.font = `bold ${11 * scale}px Georgia, serif`;
+      c.fillText(name, cx, pad + 11 * scale);
+
+      c.font = `${7.5 * scale}px Georgia, serif`;
+      c.fillStyle = accent;
+      c.fillText(title, cx, pad + 20 * scale);
+
+      c.fillStyle = ink;
+      c.font = `${7 * scale}px Georgia, serif`;
+      c.fillText(company, cx, pad + 29 * scale);
+
+      c.fillStyle = '#666666';
+      c.font = `${6.5 * scale}px monospace`;
+      let y = pad + 38 * scale;
+      [email, phone, web, addr].filter(Boolean).forEach(line => {
+        c.fillText(line, cx, y);
+        y += 7.5 * scale;
+      });
+    } else {
+      // split layout
+      c.textAlign = 'left';
+      c.fillStyle = ink;
+      c.font = `bold ${11 * scale}px Georgia, serif`;
+      c.fillText(name, lpad, pad + 14 * scale);
+      c.font = `${7.5 * scale}px Georgia, serif`;
+      c.fillStyle = accent;
+      c.fillText(title, lpad, pad + 24 * scale);
+      c.fillStyle = ink;
+      c.font = `${7 * scale}px Georgia, serif`;
+      c.fillText(company, lpad, pad + 33 * scale);
+
+      c.textAlign = 'right';
+      c.fillStyle = '#666666';
+      c.font = `${6.5 * scale}px monospace`;
+      let y = pad + 14 * scale;
+      [email, phone, web, addr].filter(Boolean).forEach(line => {
+        c.fillText(line, W - pad, y);
+        y += 8 * scale;
+      });
+    }
+  }
+
+  function render() {
+    canvas.width = CARD_W_MM * SCALE;
+    canvas.height = CARD_H_MM * SCALE;
+    renderCard(ctx, SCALE);
+  }
+
+  Object.values(fields).forEach(el => {
+    el.addEventListener('input', render);
+    el.addEventListener('change', render);
+  });
+
+  document.getElementById('download-pdf')!.addEventListener('click', () => {
+    // A4: 210x297mm, 2 cols x 5 rows = 10 cards
+    const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+    const COLS = 2;
+    const ROWS = 5;
+    const marginX = (210 - COLS * CARD_W_MM) / 2;
+    const marginY = (297 - ROWS * CARD_H_MM) / 2;
+
+    const PDF_SCALE = 5;
+    const offscreen = document.createElement('canvas');
+    offscreen.width = CARD_W_MM * PDF_SCALE;
+    offscreen.height = CARD_H_MM * PDF_SCALE;
+    const octx = offscreen.getContext('2d')!;
+    renderCard(octx, PDF_SCALE);
+    const imgData = offscreen.toDataURL('image/png');
+
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const x = marginX + c * CARD_W_MM;
+        const y = marginY + r * CARD_H_MM;
+        doc.addImage(imgData, 'PNG', x, y, CARD_W_MM, CARD_H_MM);
+        doc.setDrawColor(200, 200, 200);
+        doc.rect(x, y, CARD_W_MM, CARD_H_MM);
+      }
+    }
+    doc.save('business-cards.pdf');
+  });
+
+  render();
+</script>

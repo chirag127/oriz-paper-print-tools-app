@@ -1,0 +1,352 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro'
+---
+<BaseLayout title="Label Maker — Oriz Print" description="Create drag-and-drop text, barcode and QR labels and download as print-ready PDF. Runs in your browser.">
+  <article class="tool">
+    <p class="back mono"><a href="/">← all tools</a></p>
+    <h1 class="h1">Label Maker</h1>
+    <p class="status mono ready">ready</p>
+    <p class="lede">Drag and position text, barcode, and QR code elements on a label canvas. Download as print-ready PDF.</p>
+
+    <div class="controls">
+      <div class="ctrl-row">
+        <label>Label size
+          <select id="label-size">
+            <option value="63.5x38.1">63.5 × 38.1 mm (Avery 5160)</option>
+            <option value="101.6x50.8">101.6 × 50.8 mm (Avery 5164)</option>
+            <option value="88.9x33.8">88.9 × 33.8 mm (Avery 5161)</option>
+            <option value="50x25">50 × 25 mm (custom small)</option>
+            <option value="100x50">100 × 50 mm (custom medium)</option>
+          </select>
+        </label>
+        <label>Columns <input id="cols" type="number" min="1" max="8" value="3" /></label>
+        <label>Rows <input id="rows" type="number" min="1" max="12" value="7" /></label>
+      </div>
+      <div class="ctrl-row">
+        <button id="add-text" class="btn">+ Text</button>
+        <button id="add-barcode" class="btn">+ Barcode</button>
+        <button id="add-qr" class="btn">+ QR Code</button>
+        <button id="clear-all" class="btn btn-ghost">Clear all</button>
+      </div>
+      <div class="ctrl-row" id="element-editor" style="display:none">
+        <input id="elem-content" type="text" placeholder="Label text or data…" style="flex:1" />
+        <label>Size <input id="elem-size" type="number" min="6" max="72" value="12" style="width:4rem" /></label>
+        <button id="elem-delete" class="btn btn-ghost">Delete</button>
+      </div>
+    </div>
+
+    <div class="canvas-wrap">
+      <canvas id="label-canvas" width="600" height="420"></canvas>
+      <p class="hint">Click elements to select. Drag to reposition.</p>
+    </div>
+
+    <div class="actions">
+      <button id="download-pdf" class="btn btn-primary">Download PDF</button>
+    </div>
+  </article>
+</BaseLayout>
+
+<style>
+  .tool { padding-block: 0 2rem; }
+  .back { font-size: 12px; margin: 0 0 2rem; }
+  .back a { color: var(--muted); text-decoration: none; }
+  .back a:hover { color: var(--ink); }
+  .h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(1.75rem, 4vw, 2.5rem); margin: 0 0 0.5rem; line-height: 1.1; }
+  .status { font-size: 11px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 2rem; }
+  .status.ready { color: var(--accent); }
+  .lede { font-size: 1rem; color: var(--muted); line-height: 1.6; max-width: 56ch; margin: 0 0 1.5rem; }
+  .controls { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.25rem; }
+  .ctrl-row { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; }
+  label { font-size: 0.875rem; color: var(--muted); display: flex; flex-direction: column; gap: 0.25rem; }
+  select, input[type="number"], input[type="text"] {
+    padding: 0.4rem 0.6rem;
+    background: var(--paper-2);
+    border: 1px solid var(--rule);
+    color: var(--ink);
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+  }
+  .btn {
+    padding: 0.4rem 0.9rem;
+    border: 1px solid var(--rule);
+    background: var(--paper-2);
+    color: var(--ink);
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    cursor: pointer;
+    letter-spacing: 0.04em;
+  }
+  .btn:hover { background: var(--ink); color: var(--paper); }
+  .btn-ghost { opacity: 0.6; }
+  .btn-ghost:hover { opacity: 1; }
+  .btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn-primary:hover { opacity: 0.85; background: var(--accent); color: #fff; }
+  .canvas-wrap { border: 1px solid var(--rule); display: inline-block; background: white; }
+  canvas { display: block; cursor: crosshair; max-width: 100%; }
+  .actions { margin-top: 1rem; }
+  .hint { font-size: 11px; color: var(--muted); margin: 0.5rem 0 0; }
+</style>
+
+<script>
+  import { jsPDF } from 'jspdf';
+  import bwipjs from 'bwip-js';
+
+  const canvas = document.getElementById('label-canvas') as HTMLCanvasElement;
+  const ctx = canvas.getContext('2d')!;
+
+  interface LabelElement {
+    id: number;
+    type: 'text' | 'barcode' | 'qr';
+    content: string;
+    x: number;
+    y: number;
+    fontSize: number;
+    selected: boolean;
+  }
+
+  let elements: LabelElement[] = [];
+  let nextId = 1;
+  let selectedId: number | null = null;
+  let dragging = false;
+  let dragOffX = 0;
+  let dragOffY = 0;
+
+  const labelSizeEl = document.getElementById('label-size') as HTMLSelectElement;
+  const colsEl = document.getElementById('cols') as HTMLInputElement;
+  const rowsEl = document.getElementById('rows') as HTMLInputElement;
+  const elemEditor = document.getElementById('element-editor') as HTMLElement;
+  const elemContent = document.getElementById('elem-content') as HTMLInputElement;
+  const elemSize = document.getElementById('elem-size') as HTMLInputElement;
+
+  function getLabelDims(): [number, number] {
+    const [w, h] = labelSizeEl.value.split('x').map(Number);
+    return [w, h];
+  }
+
+  function renderBarcodeToImage(content: string, type: 'barcode' | 'qr'): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+      const offscreen = document.createElement('canvas');
+      try {
+        bwipjs.toCanvas(offscreen, {
+          bcid: type === 'qr' ? 'qrcode' : 'code128',
+          text: content || 'SAMPLE',
+          scale: 3,
+          height: type === 'qr' ? 20 : 10,
+          includetext: type === 'barcode',
+          textxalign: 'center',
+        });
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = offscreen.toDataURL();
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+
+  async function render() {
+    const [lw, lh] = getLabelDims();
+    const cols = parseInt(colsEl.value) || 3;
+    const rows = parseInt(rowsEl.value) || 7;
+    const scale = 2.2;
+    const W = cols * lw * scale;
+    const H = rows * lh * scale;
+    canvas.width = W;
+    canvas.height = H;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, W, H);
+
+    // Draw label borders
+    ctx.strokeStyle = '#cccccc';
+    ctx.lineWidth = 0.5;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        ctx.strokeRect(c * lw * scale, r * lh * scale, lw * scale, lh * scale);
+      }
+    }
+
+    // Draw elements in first label cell as design area
+    for (const el of elements) {
+      if (el.type === 'text') {
+        ctx.font = `${el.fontSize}px IBM Plex Mono, monospace`;
+        ctx.fillStyle = el.selected ? '#1e40af' : '#1a1a1a';
+        ctx.fillText(el.content || 'Text', el.x, el.y);
+        if (el.selected) {
+          const m = ctx.measureText(el.content || 'Text');
+          ctx.strokeStyle = '#1e40af';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([3, 3]);
+          ctx.strokeRect(el.x - 2, el.y - el.fontSize - 2, m.width + 4, el.fontSize + 8);
+          ctx.setLineDash([]);
+        }
+      } else {
+        try {
+          const img = await renderBarcodeToImage(el.content, el.type);
+          const bw = el.type === 'qr' ? 60 : 120;
+          const bh = el.type === 'qr' ? 60 : 30;
+          ctx.drawImage(img, el.x, el.y - bh, bw, bh);
+          if (el.selected) {
+            ctx.strokeStyle = '#1e40af';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([3, 3]);
+            ctx.strokeRect(el.x - 2, el.y - bh - 2, bw + 4, bh + 4);
+            ctx.setLineDash([]);
+          }
+        } catch {
+          ctx.fillStyle = '#cc0000';
+          ctx.font = '11px monospace';
+          ctx.fillText('[barcode error]', el.x, el.y);
+        }
+      }
+    }
+
+    // Tile the first label across the sheet
+    const firstImg = ctx.getImageData(0, 0, lw * scale, lh * scale);
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (r === 0 && c === 0) continue;
+        ctx.putImageData(firstImg, c * lw * scale, r * lh * scale);
+      }
+    }
+    // Redraw grid on top
+    ctx.strokeStyle = '#cccccc';
+    ctx.lineWidth = 0.5;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        ctx.strokeRect(c * lw * scale, r * lh * scale, lw * scale, lh * scale);
+      }
+    }
+  }
+
+  function addElement(type: 'text' | 'barcode' | 'qr') {
+    const el: LabelElement = { id: nextId++, type, content: type === 'text' ? 'Label Text' : 'SAMPLE123', x: 30, y: 40 + elements.length * 20, fontSize: 12, selected: false };
+    elements.forEach(e => e.selected = false);
+    el.selected = true;
+    selectedId = el.id;
+    elements.push(el);
+    updateEditor();
+    render();
+  }
+
+  function updateEditor() {
+    const sel = elements.find(e => e.id === selectedId);
+    if (sel) {
+      elemEditor.style.display = 'flex';
+      elemContent.value = sel.content;
+      elemSize.value = String(sel.fontSize);
+    } else {
+      elemEditor.style.display = 'none';
+    }
+  }
+
+  document.getElementById('add-text')!.addEventListener('click', () => addElement('text'));
+  document.getElementById('add-barcode')!.addEventListener('click', () => addElement('barcode'));
+  document.getElementById('add-qr')!.addEventListener('click', () => addElement('qr'));
+  document.getElementById('clear-all')!.addEventListener('click', () => { elements = []; selectedId = null; updateEditor(); render(); });
+
+  elemContent.addEventListener('input', () => {
+    const sel = elements.find(e => e.id === selectedId);
+    if (sel) { sel.content = elemContent.value; render(); }
+  });
+  elemSize.addEventListener('input', () => {
+    const sel = elements.find(e => e.id === selectedId);
+    if (sel) { sel.fontSize = parseInt(elemSize.value) || 12; render(); }
+  });
+  document.getElementById('elem-delete')!.addEventListener('click', () => {
+    elements = elements.filter(e => e.id !== selectedId);
+    selectedId = null; updateEditor(); render();
+  });
+
+  canvas.addEventListener('mousedown', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const mx = (e.clientX - rect.left) * scaleX;
+    const my = (e.clientY - rect.top) * scaleY;
+
+    let found: LabelElement | null = null;
+    for (let i = elements.length - 1; i >= 0; i--) {
+      const el = elements[i];
+      const hw = el.type === 'text' ? 100 : (el.type === 'qr' ? 60 : 120);
+      const hh = el.type === 'text' ? el.fontSize + 8 : (el.type === 'qr' ? 60 : 30);
+      if (mx >= el.x - 2 && mx <= el.x + hw && my >= el.y - hh && my <= el.y + 6) {
+        found = el; break;
+      }
+    }
+    elements.forEach(el => el.selected = false);
+    if (found) {
+      found.selected = true;
+      selectedId = found.id;
+      dragging = true;
+      dragOffX = mx - found.x;
+      dragOffY = my - found.y;
+    } else {
+      selectedId = null;
+    }
+    updateEditor();
+    render();
+  });
+
+  canvas.addEventListener('mousemove', (e) => {
+    if (!dragging || selectedId === null) return;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const mx = (e.clientX - rect.left) * scaleX;
+    const my = (e.clientY - rect.top) * scaleY;
+    const sel = elements.find(el => el.id === selectedId);
+    if (sel) { sel.x = mx - dragOffX; sel.y = my - dragOffY; render(); }
+  });
+
+  canvas.addEventListener('mouseup', () => { dragging = false; });
+
+  labelSizeEl.addEventListener('change', render);
+  colsEl.addEventListener('input', render);
+  rowsEl.addEventListener('input', render);
+
+  document.getElementById('download-pdf')!.addEventListener('click', async () => {
+    const [lw, lh] = getLabelDims();
+    const cols = parseInt(colsEl.value) || 3;
+    const rows = parseInt(rowsEl.value) || 7;
+    const pageW = cols * lw;
+    const pageH = rows * lh;
+    const doc = new jsPDF({ unit: 'mm', format: [pageW, pageH], orientation: 'portrait' });
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const ox = c * lw;
+        const oy = r * lh;
+        // draw label border
+        doc.setDrawColor(200, 200, 200);
+        doc.rect(ox, oy, lw, lh);
+        for (const el of elements) {
+          const sx = el.x / 2.2;
+          const sy = el.y / 2.2;
+          if (el.type === 'text') {
+            doc.setFontSize(el.fontSize * 0.8);
+            doc.setTextColor(26, 26, 26);
+            doc.text(el.content || 'Text', ox + sx, oy + sy);
+          } else {
+            try {
+              const offscreen = document.createElement('canvas');
+              bwipjs.toCanvas(offscreen, {
+                bcid: el.type === 'qr' ? 'qrcode' : 'code128',
+                text: el.content || 'SAMPLE',
+                scale: 3,
+                height: el.type === 'qr' ? 20 : 10,
+              });
+              const imgData = offscreen.toDataURL('image/png');
+              const bw = el.type === 'qr' ? 15 : 30;
+              const bh = el.type === 'qr' ? 15 : 8;
+              doc.addImage(imgData, 'PNG', ox + sx, oy + sy - bh, bw, bh);
+            } catch { /* skip failed barcodes */ }
+          }
+        }
+      }
+    }
+    doc.save('labels.pdf');
+  });
+
+  render();
+</script>

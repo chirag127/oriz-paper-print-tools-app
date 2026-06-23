@@ -1,5 +1,6 @@
 ---
 import '~/styles/global.css'
+import { pricingUrl } from '@chirag127/astro-shell/pricing-url'
 
 interface Props {
   title?: string
@@ -8,6 +9,7 @@ interface Props {
 
 const { title = 'Oriz Print — Paper-first. Booklets, n-up, labels, grids.', description = 'Print preview, booklet layout, n-up, page numbering, Avery labels, QR sticker sheets, graph paper.' } = Astro.props
 const canonical = new URL(Astro.url.pathname, 'https://print.oriz.in').toString()
+const pricingHref = pricingUrl('oriz-paper-print-tools-app')
 ---
 <!doctype html>
 <html lang="en">
@@ -34,8 +36,8 @@ const canonical = new URL(Astro.url.pathname, 'https://print.oriz.in').toString(
       <nav>
         <a href="/">tools</a>
         <a href="/about/">about</a>
-        <a href="/pricing/">pricing</a>
-        <a href="https://auth.oriz.in/sign-in">sign in</a>
+        <a href={pricingHref}>pricing</a>
+        <a href="https://account.oriz.in/sign-in">sign in</a>
       </nav>
     </header>
     <main id="main"><slot /></main>
@@ -47,3 +49,7 @@ const canonical = new URL(Astro.url.pathname, 'https://print.oriz.in').toString(
     </footer>
   </body>
 </html>
+
+<style is:global>
+  nav a { min-height: 32px; padding: 6px 0; display: inline-flex; align-items: center; }
+</style>

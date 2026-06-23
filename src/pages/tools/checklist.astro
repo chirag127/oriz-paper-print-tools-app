@@ -1,0 +1,189 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro'
+---
+<BaseLayout title="Checklist Printer — Oriz Print" description="Add and reorder checklist items, then print a clean printable page. Runs in your browser.">
+  <article class="tool">
+    <p class="back mono"><a href="/">← all tools</a></p>
+    <h1 class="h1">Checklist Printer</h1>
+    <p class="status mono ready">ready</p>
+    <p class="lede">Add items, drag to reorder, then print or download a clean printable checklist.</p>
+
+    <div class="controls">
+      <div class="ctrl-row">
+        <input id="new-item" type="text" placeholder="Add checklist item…" />
+        <button id="add-item" class="btn">Add</button>
+      </div>
+      <div class="ctrl-row">
+        <label>Title <input id="list-title" type="text" value="My Checklist" style="min-width:14rem" /></label>
+        <label>Columns
+          <select id="list-cols">
+            <option value="1">1 column</option>
+            <option value="2">2 columns</option>
+          </select>
+        </label>
+        <label>Box style
+          <select id="box-style">
+            <option value="square">Square box</option>
+            <option value="circle">Circle</option>
+            <option value="line">Underline</option>
+          </select>
+        </label>
+      </div>
+    </div>
+
+    <ul id="checklist" class="checklist" aria-label="Checklist items"></ul>
+    <p class="hint" id="drag-hint" style="display:none">Drag items to reorder.</p>
+
+    <div class="actions">
+      <button id="print-btn" class="btn btn-primary">Print</button>
+      <button id="clear-btn" class="btn btn-ghost">Clear all</button>
+    </div>
+  </article>
+</BaseLayout>
+
+<style>
+  .tool { padding-block: 0 2rem; }
+  .back { font-size: 12px; margin: 0 0 2rem; }
+  .back a { color: var(--muted); text-decoration: none; }
+  .back a:hover { color: var(--ink); }
+  .h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(1.75rem, 4vw, 2.5rem); margin: 0 0 0.5rem; line-height: 1.1; }
+  .status { font-size: 11px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 2rem; }
+  .status.ready { color: var(--accent); }
+  .lede { font-size: 1rem; color: var(--muted); line-height: 1.6; max-width: 56ch; margin: 0 0 1.5rem; }
+  .controls { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.25rem; }
+  .ctrl-row { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: flex-end; }
+  label { font-size: 0.875rem; color: var(--muted); display: flex; flex-direction: column; gap: 0.2rem; }
+  input[type="text"], select {
+    padding: 0.4rem 0.6rem;
+    background: var(--paper-2);
+    border: 1px solid var(--rule);
+    color: var(--ink);
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+  }
+  #new-item { min-width: 18rem; }
+  .checklist { list-style: none; padding: 0; margin: 0 0 1rem; display: flex; flex-direction: column; gap: 0.25rem; max-width: 50ch; }
+  .checklist li {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.6rem;
+    background: var(--paper-2);
+    border: 1px solid var(--rule);
+    cursor: grab;
+    font-size: 0.9375rem;
+  }
+  .checklist li:active { cursor: grabbing; opacity: 0.8; }
+  .checklist li .drag-handle { color: var(--muted); font-size: 12px; cursor: grab; user-select: none; }
+  .checklist li .item-text { flex: 1; }
+  .checklist li button { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; line-height: 1; padding: 0 0.25rem; }
+  .checklist li button:hover { color: #cc0000; }
+  .btn {
+    padding: 0.4rem 0.9rem;
+    border: 1px solid var(--rule);
+    background: var(--paper-2);
+    color: var(--ink);
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    cursor: pointer;
+    letter-spacing: 0.04em;
+  }
+  .btn:hover { background: var(--ink); color: var(--paper); }
+  .btn-ghost { opacity: 0.6; }
+  .btn-ghost:hover { opacity: 1; }
+  .btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn-primary:hover { opacity: 0.85; background: var(--accent); color: #fff; }
+  .hint { font-size: 11px; color: var(--muted); margin-bottom: 1rem; }
+  .actions { display: flex; gap: 0.75rem; }
+
+  @media print {
+    .back, .controls, .actions, .hint, header.site, footer.site { display: none !important; }
+    .status, .lede { display: none !important; }
+    .h1 { font-size: 1.4rem; margin-bottom: 1.25rem; }
+    .checklist { display: grid; max-width: none; }
+    .checklist li { background: none; border: none; padding: 0.5rem 0; cursor: default; }
+    .checklist li .drag-handle, .checklist li button { display: none; }
+    .checklist.cols-2 { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+
+<script>
+  let items: string[] = ['Review documents', 'Pack essentials', 'Confirm reservations', 'Charge devices'];
+  let dragSrc: number | null = null;
+
+  const listEl = document.getElementById('checklist') as HTMLUListElement;
+  const newItemEl = document.getElementById('new-item') as HTMLInputElement;
+  const titleEl = document.getElementById('list-title') as HTMLInputElement;
+  const colsEl = document.getElementById('list-cols') as HTMLSelectElement;
+  const boxStyleEl = document.getElementById('box-style') as HTMLSelectElement;
+  const dragHint = document.getElementById('drag-hint') as HTMLElement;
+
+  function renderList() {
+    listEl.className = `checklist ${colsEl.value === '2' ? 'cols-2' : ''}`;
+    listEl.innerHTML = '';
+    items.forEach((item, i) => {
+      const li = document.createElement('li');
+      li.draggable = true;
+      li.dataset.idx = String(i);
+
+      const handle = document.createElement('span');
+      handle.className = 'drag-handle';
+      handle.textContent = '⠿';
+
+      const boxSymbol = boxStyleEl.value === 'square' ? '☐' : boxStyleEl.value === 'circle' ? '○' : '___';
+      const box = document.createElement('span');
+      box.style.fontFamily = 'monospace';
+      box.style.fontSize = '1rem';
+      box.textContent = boxSymbol;
+
+      const text = document.createElement('span');
+      text.className = 'item-text';
+      text.textContent = item;
+
+      const del = document.createElement('button');
+      del.textContent = '×';
+      del.title = 'Remove';
+      del.addEventListener('click', () => { items.splice(i, 1); renderList(); });
+
+      li.append(handle, box, text, del);
+
+      li.addEventListener('dragstart', () => { dragSrc = i; li.style.opacity = '0.5'; });
+      li.addEventListener('dragend', () => { li.style.opacity = '1'; });
+      li.addEventListener('dragover', (e) => { e.preventDefault(); });
+      li.addEventListener('drop', () => {
+        if (dragSrc !== null && dragSrc !== i) {
+          const tmp = items[dragSrc];
+          items.splice(dragSrc, 1);
+          items.splice(i, 0, tmp);
+          renderList();
+        }
+        dragSrc = null;
+      });
+
+      listEl.appendChild(li);
+    });
+    dragHint.style.display = items.length > 1 ? 'block' : 'none';
+  }
+
+  document.getElementById('add-item')!.addEventListener('click', () => {
+    const v = newItemEl.value.trim();
+    if (v) { items.push(v); newItemEl.value = ''; renderList(); }
+  });
+  newItemEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { document.getElementById('add-item')!.click(); }
+  });
+  document.getElementById('clear-btn')!.addEventListener('click', () => { items = []; renderList(); });
+  colsEl.addEventListener('change', renderList);
+  boxStyleEl.addEventListener('change', renderList);
+
+  document.getElementById('print-btn')!.addEventListener('click', () => {
+    // Set title in a temporary heading
+    const h = document.querySelector('.h1') as HTMLElement;
+    const orig = h.textContent;
+    h.textContent = titleEl.value || 'Checklist';
+    window.print();
+    h.textContent = orig;
+  });
+
+  renderList();
+</script>
